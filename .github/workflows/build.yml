@@ -1,0 +1,113 @@
+name: Build and Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  autofix:
+    name: Autofix
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: |
+          pnpm format
+          pnpm lint:fix
+
+      - uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: 'style: auto-fix prettier and lint'
+
+  test:
+    runs-on: ubuntu-latest
+    needs: autofix
+    if: |
+      needs.autofix.result == 'success' || needs.autofix.result == 'skipped'
+    services:
+      valkey:
+        image: valkey/valkey:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping || redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: db_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Create .env file
+        run: cp .env.test .env
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      - name: Sync Prisma schema
+        run: pnpm db:push
+
+      - name: Seed test reference data
+        run: pnpm db:seed
+
+      - name: Run checks
+        run: pnpm typecheck && pnpm format:check && pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run unit tests
+        run: pnpm test:unit
+
+      - name: Run e2e tests
+        run: pnpm test:e2e

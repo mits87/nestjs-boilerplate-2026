@@ -1,0 +1,13 @@
+allowBuilds:
+  '@suites/di.nestjs': true
+  '@suites/doubles.vitest': true
+  '@nestjs/core': true
+  '@prisma/engines': true
+  '@scarf/scarf': true
+  '@swc/core': true
+  cpu-features: false
+  esbuild: true
+  prisma: true
+  protobufjs: false
+  ssh2: false
+  unrs-resolver: true
